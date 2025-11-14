@@ -1,173 +1,62 @@
-# Pipecat Quickstart
+# Voice Agent
 
-Build and deploy your first voice AI bot in under 10 minutes. Develop locally, then scale to production on Pipecat Cloud.
+A conversational AI voice agent built using Pipecat framework.
 
-**Two steps**: [🏠 Local Development](#run-your-bot-locally) → [☁️ Production Deployment](#deploy-to-production)
+## Setup Instructions
 
-## Step 1: Local Development (5 min)
+To run the voice agent locally, follow these steps:
 
-### Prerequisites
-
-#### Environment
-
-- Python 3.10 or later
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) package manager installed
-
-#### AI Service API keys
-
-You'll need API keys from three services:
-
-- [Deepgram](https://console.deepgram.com/signup) for Speech-to-Text
-- [OpenAI](https://auth.openai.com/create-account) for LLM inference
-- [Cartesia](https://play.cartesia.ai/sign-up) for Text-to-Speech
-
-> 💡 **Tip**: Sign up for all three now. You'll need them for both local and cloud deployment.
-
-### Setup
-
-Navigate to the quickstart directory and set up your environment.
-
-1. Clone this repository
-
-   ```bash
-   git clone https://github.com/pipecat-ai/pipecat-quickstart.git
-   cd pipecat-quickstart
+1. Clone the repository:
+   ```
+   git clone https://github.com/Aman-290/voice-assistant-agent
    ```
 
-2. Configure your API keys:
+2. Navigate to the voice-assistant-agent directory:
+   ```
+   cd voice-assistant-agent
+   ```
 
-   Create a `.env` file:
-
-   ```bash
+3. Copy the environment example file:
+   ```
    cp env.example .env
    ```
 
-   Then, add your API keys:
-
-   ```ini
-   DEEPGRAM_API_KEY=your_deepgram_api_key
-   OPENAI_API_KEY=your_openai_api_key
-   CARTESIA_API_KEY=your_cartesia_api_key
+4. Install dependencies using uv:
    ```
-
-3. Set up a virtual environment and install dependencies
-
-   ```bash
    uv sync
    ```
 
-### Run your bot locally
-
-```bash
-uv run bot.py
-```
-
-**Open http://localhost:7860 in your browser** and click `Connect` to start talking to your bot.
-
-> 💡 First run note: The initial startup may take ~20 seconds as Pipecat downloads required models and imports.
-
-🎉 **Success!** Your bot is running locally. Now let's deploy it to production so others can use it.
-
----
-
-## Step 2: Deploy to Production (5 min)
-
-Transform your local bot into a production-ready service. Pipecat Cloud handles scaling, monitoring, and global deployment.
-
-### Prerequisites
-
-1. [Sign up for Pipecat Cloud](https://pipecat.daily.co/sign-up).
-
-2. Set up Docker for building your bot image:
-
-   - **Install [Docker](https://www.docker.com/)** on your system
-   - **Create a [Docker Hub](https://hub.docker.com/) account**
-   - **Login to Docker Hub:**
-
-     ```bash
-     docker login
-     ```
-
-3. Install the Pipecat CLI
-
-   ```bash
-   uv tool install pipecat-ai-cli
+5. Run the bot:
+   ```
+   uv run bot.py
    ```
 
-   > Tip: You can run the `pipecat` CLI using the `pc` alias.
+## Architecture Overview
 
-### Configure your deployment
+The voice agent uses Pipecat as the core orchestrator to manage the conversation flow. The system integrates several services:
 
-The `pcc-deploy.toml` file tells Pipecat Cloud how to run your bot. **Update the image field** with your Docker Hub username by editing `pcc-deploy.toml`.
+- **Speech-to-Text (STT)**: Deepgram for fast and accurate transcription
+- **Large Language Model (LLM)**: Gemini for intelligent conversation processing
+- **Text-to-Speech (TTS)**: Cartesia for low-latency voice synthesis
+- **Memory Management**: Mem0 for conversational memory and context retention
+- **Web Search**: Tavily API for real-time information retrieval
+- **Weather Data**: Free weather API for location-based weather information
 
-```ini
-agent_name = "quickstart"
-image = "YOUR_DOCKERHUB_USERNAME/quickstart:0.1"  # 👈 Update this line
-secret_set = "quickstart-secrets"
+Pipecat handles the orchestration, providing built-in features like interrupt detection and voice activity detection.
 
-[scaling]
-	min_agents = 1
-```
+## Design Decisions
 
-**Understanding the TOML file settings:**
+- **Pipecat Framework**: Chosen for its built-in interrupt detection and voice activity detection capabilities, which are essential for natural conversational interactions.
+- **Deepgram for STT**: Selected over local Whisper models due to GPU limitations that would slow down processing. Deepgram provides much faster transcription speeds.
+- **Cartesia for TTS**: Preferred over ElevenLabs due to significantly lower latency, ensuring more responsive voice output.
+- **Mem0 Memory Strategy**: I chose Mem0 (self-hosted) because it offers the best balance of speed, cost, and intelligence for a real-time conversational AI agent. Other options—like Supermemory's API or cloud vector databases—introduce network latency and recurring costs, which break the "instant response" requirement. Simple local storage was also considered but lacks semantic search and cannot scale with long conversations. Mem0, combined with a local vector DB, provides millisecond-level retrieval, zero external dependency, smart memory filtering, and long-term scalability, all while remaining free for an MVP. This makes it the most practical and high-performance choice compared to the alternatives.
 
-- `agent_name`: Your bot's name in Pipecat Cloud
-- `image`: The Docker image to deploy (format: `username/image:version`)
-- `secret_set`: Where your API keys are stored securely
-- `min_agents`: Number of bot instances to keep ready (1 = instant start)
+## Time Spent
 
-> 💡 Tip: [Set up `image_credentials`](https://docs.pipecat.ai/deployment/pipecat-cloud/fundamentals/secrets#image-pull-secrets) in your TOML file for authenticated image pulls
+Approximately 7-8 hours were spent on this project, including research, design choices, and implementation.
 
-### Log in to Pipecat Cloud
+## Known Limitations
 
-To start using the CLI, authenticate to Pipecat Cloud:
-
-```bash
-pipecat cloud auth login
-```
-
-You'll be presented with a link that you can click to authenticate your client.
-
-### Configure secrets
-
-Upload your API keys to Pipecat Cloud's secure storage:
-
-```bash
-pipecat cloud secrets set quickstart-secrets --file .env
-```
-
-This creates a secret set called `quickstart-secrets` (matching your TOML file) and uploads all your API keys from `.env`.
-
-### Build and deploy
-
-Build your Docker image and push to Docker Hub:
-
-```bash
-pipecat cloud docker build-push
-```
-
-Deploy to Pipecat Cloud:
-
-```bash
-pipecat cloud deploy
-```
-
-### Connect to your agent
-
-1. Open your [Pipecat Cloud dashboard](https://pipecat.daily.co/)
-2. Select your `quickstart` agent → **Sandbox**
-3. Allow microphone access and click **Connect**
-
----
-
-## What's Next?
-
-**🔧 Customize your bot**: Modify `bot.py` to change personality, add functions, or integrate with your data  
-**📚 Learn more**: Check out [Pipecat's docs](https://docs.pipecat.ai/) for advanced features  
-**💬 Get help**: Join [Pipecat's Discord](https://discord.gg/pipecat) to connect with the community
-
-### Troubleshooting
-
-- **Browser permissions**: Allow microphone access when prompted
-- **Connection issues**: Try a different browser or check VPN/firewall settings
-- **Audio issues**: Verify microphone and speakers are working and not muted
+- The client expose SDK is available, but integration with custom client environments still needs exploration.
+- For testing purposes, the system uses Pipecat's default Uvicorn UI, which includes both audio and video feeds. Currently, only audio is utilized, but video feed can be easily implemented in the future.
+- Due to the selection of Pipecat as the framework, changing underlying models (STT, TTS, LLM) is straightforward and won't break existing functionality, reducing vendor lock-in issues.
