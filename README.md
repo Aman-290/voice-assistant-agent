@@ -36,7 +36,14 @@ To run the voice agent locally, follow these steps:
    uv run bot.py
    ```
 
-## Architecture Overview
+7. After running the bot, the Pipecat client will be available in your browser. The terminal will display something like:
+   ```
+   🚀 Bot ready!
+   → Open http://localhost:7860/client in your browser
+   ```
+   Open [http://localhost:7860/client](http://localhost:7860/client) to interact with the voice agent. Once opened:
+   - Grant microphone permissions when prompted by your browser
+   - Click the "Connect" button to connect the client to the server and start the voice agent
 
 The voice agent uses Pipecat as the core orchestrator to manage the conversation flow. The system integrates several services:
 
