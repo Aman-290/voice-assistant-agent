@@ -53,6 +53,7 @@ The voice agent uses Pipecat as the core orchestrator to manage the conversation
 - **Memory Management**: Mem0 for conversational memory and context retention
 - **Web Search**: Tavily API for real-time information retrieval
 - **Weather Data**: Free weather API for location-based weather information
+- **Hotel Search & Booking**: Google ADK-powered hotel search and multi-step booking system with voice-guided conversational flow
 
 Pipecat handles the orchestration, providing built-in features like interrupt detection and voice activity detection. For every user query, Mem0 fetches the most relevant memories that could be helpful for generating a response, allowing the AI to respond based on historical context. Mem0 can smartly update and manage memory fields to maintain accurate and evolving information.
 
@@ -63,6 +64,12 @@ The voice agent includes advanced agentic capabilities that enhance conversation
 - **Seamless Web Search Integration**: The AI can perform real-time web searches using Tavily API and incorporate relevant information directly into the conversation flow.
 - **Weather Information**: Access to free weather APIs allows the agent to provide current weather data and forecasts as part of natural dialogue.
 - **Intelligent Memory**: The AI maintains persistent memory across conversations, allowing for context-aware responses and personalized interactions.
+- **Multi-Step Hotel Booking Workflow**: A complete hotel booking agentic system has been integrated, allowing users to:
+  - Search for hotels in any location with real-time pricing from multiple booking sites
+  - Engage in natural voice conversations to select room types, dates, and guest information
+  - Complete full booking confirmations through guided conversational steps
+  - The agent intelligently manages booking state and continues the conversation flow until booking is confirmed or cancelled
+  - All booking functionality is currently demo-based with mock data for testing purposes
 
 ## Design Decisions
 

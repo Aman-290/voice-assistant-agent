@@ -221,6 +221,365 @@ def get_current_weather(location: Optional[str] = None, unit: Optional[str] = No
     return json.dumps(weather_info)
 
 
+# Hotel Booking Integration
+import random
+from typing import Dict, List, Any
+from google.genai import types
+from google.adk.runners import Runner
+from google.adk.tools import google_search
+from google.adk.agents import LlmAgent
+from google.adk.sessions import InMemorySessionService
+
+# Hotel booking session management
+HOTEL_APP_NAME = "voice_hotel_app"
+HOTEL_USER_ID = "voice_user"
+HOTEL_SESSION_ID = "voice_session"
+
+hotel_session_service = InMemorySessionService()
+
+# Initialize hotel booking session
+async def init_hotel_session():
+    await hotel_session_service.create_session(
+        app_name=HOTEL_APP_NAME,
+        user_id=HOTEL_USER_ID,
+        session_id=HOTEL_SESSION_ID
+    )
+
+# Run initialization
+import asyncio
+asyncio.run(init_hotel_session())
+
+# Initialize hotel booking state
+hotel_booking_state = {
+    "active": False,
+    "hotel_name": "",
+    "room_type": "",
+    "check_in": "",
+    "check_out": "",
+    "guests": 0,
+    "total_price": 0,
+    "step": "initial"
+}
+
+# Hotel Search Agent Instructions
+HOTEL_SEARCH_AGENT_INSTRUCTIONS = """
+You are a hotel search assistant. Your goal is to find hotel names and basic information based on the user's query.
+
+**Your Workflow:**
+1. Use Google Search to find hotels based on the user's location query.
+2. Extract the hotel name, its general location (e.g., the city), a rating, and an estimated cost.
+3. STRICTLY follow this JSON output format. The 'hotels' key should contain a list of objects:
+    {
+        "text": "Optional introductory text about the search results.",
+        "hotels": [
+            {
+                "hotel_name": "Name of Hotel",
+                "location": "City or Area, Country",
+                "rating": 4.5,
+                "cost": 12000
+            }
+        ]
+    }
+4. Limit the JSON output to a maximum of 10 hotels.
+
+**Search Guidelines:**
+- Use multiple search queries if needed to get comprehensive results.
+- Extract hotel names, rating, cost estimates in INR, and the location.
+"""
+
+# Hotel Search Agent
+hotel_search_agent = LlmAgent(
+    name="hotel_search_agent",
+    model="gemini-2.0-flash",
+    description="Hotel Search Agent",
+    instruction=HOTEL_SEARCH_AGENT_INSTRUCTIONS,
+    generate_content_config=types.GenerateContentConfig(temperature=0),
+    tools=[google_search]
+)
+
+hotel_search_runner = Runner(
+    agent=hotel_search_agent,
+    app_name=HOTEL_APP_NAME,
+    session_service=hotel_session_service
+)
+
+def mock_api_get_hotel_prices(hotel_name: str, location: str) -> Dict[str, Dict]:
+    """Mock API to get hotel prices from multiple booking sites"""
+    booking_sites = [
+        "Booking.com", "Agoda", "MakeMyTrip", "Trivago",
+        "Hotels.com", "Expedia", "Goibibo", "Cleartrip"
+    ]
+    hotel_prices = {}
+    for site in booking_sites:
+        if random.random() <= 0.8:  # 80% chance of availability
+            price = random.randint(5000, 20000)
+            site_domain = site.lower().replace(" ", "").replace(".", "")
+            mock_link = f"https://www.{site_domain}.com/hotel/{hotel_name.lower().replace(' ', '-')}"
+            hotel_prices[site] = {
+                "price": price,
+                "available": True,
+                "link": mock_link,
+                "currency": "INR"
+            }
+        else:
+            hotel_prices[site] = {
+                "price": None,
+                "available": False,
+                "link": None,
+                "currency": "INR"
+            }
+    return hotel_prices
+
+def get_best_hotel_deals(hotels_list: List[Dict]) -> List[Dict]:
+    """Get prices for all hotels from multiple sites and return sorted by lowest price."""
+    enhanced_hotels = []
+
+    for hotel in hotels_list:
+        hotel_name = hotel.get('hotel_name', '')
+        location = hotel.get('location', '')
+        site_prices = mock_api_get_hotel_prices(hotel_name, location)
+
+        available_prices = [
+            {'site': site, 'price': details['price'], 'link': details['link']}
+            for site, details in site_prices.items()
+            if details['available'] and details.get('price') is not None
+        ]
+
+        if available_prices:
+            best_deal = min(available_prices, key=lambda x: x['price'])
+
+            rating_from_agent = hotel.get('rating')
+            safe_rating = rating_from_agent if rating_from_agent is not None else 0
+
+            enhanced_hotel = {
+                'hotel_name': hotel_name,
+                'location': location,
+                'price': best_deal['price'],
+                'rating': safe_rating,
+                'link': best_deal['link'],
+                'price_source': best_deal['site'],
+                'all_prices': site_prices
+            }
+        else:
+            rating_from_agent = hotel.get('rating')
+            safe_rating = rating_from_agent if rating_from_agent is not None else 0
+            enhanced_hotel = {
+                'hotel_name': hotel_name,
+                'location': location,
+                'price': 0,
+                'rating': safe_rating,
+                'link': '',
+                'price_source': 'Not Available',
+                'all_prices': site_prices
+            }
+        enhanced_hotels.append(enhanced_hotel)
+
+    enhanced_hotels.sort(key=lambda x: (x['price'] == 0, x['price']))
+    return enhanced_hotels
+
+def search_hotels(query: str, max_results: int = 8) -> str:
+    """Search for hotels using the hotel search agent"""
+    try:
+        import asyncio
+        import json
+
+        async def search_async():
+            content = types.Content(role='user', parts=[types.Part(text=query)])
+            final_response_text = "Sorry, I couldn't find any hotels."
+
+            async for event in hotel_search_runner.run_async(
+                user_id=HOTEL_USER_ID,
+                session_id=HOTEL_SESSION_ID,
+                new_message=content
+            ):
+                if event.is_final_response():
+                    if event.content and event.content.parts:
+                        final_response_text = event.content.parts[0].text
+                    break
+            return final_response_text
+
+        response_text = asyncio.run(search_async())
+
+        # Parse the JSON response
+        cleaned_response = response_text.replace("```json", "").replace("```", "").strip()
+        response_json = json.loads(cleaned_response)
+
+        text_output = response_json.get("text", "")
+        hotels = response_json.get("hotels", [])
+
+        if hotels:
+            enhanced_hotels = get_best_hotel_deals(hotels)
+            enhanced_hotels = enhanced_hotels[:max_results]
+
+            result_parts = []
+            if text_output:
+                result_parts.append(text_output)
+
+            result_parts.append(f"I found {len([h for h in enhanced_hotels if h['price'] > 0])} great hotel options:")
+
+            for i, hotel in enumerate(enhanced_hotels, 1):
+                if hotel['price'] > 0:
+                    result_parts.append(
+                        f"{i}. {hotel['hotel_name']} in {hotel['location']} - ₹{hotel['price']:,} per night "
+                        f"(from {hotel['price_source']})"
+                    )
+                    if hotel['rating'] > 0:
+                        result_parts.append(f"   Rating: {hotel['rating']}/5")
+                else:
+                    result_parts.append(f"{i}. {hotel['hotel_name']} - No prices available")
+
+            return "\n".join(result_parts)
+        else:
+            return "I couldn't find any hotels matching your search. Please try a different location or be more specific."
+
+    except Exception as e:
+        logger.error(f"Hotel search failed: {e}")
+        return "I'm having trouble searching for hotels right now. Please try again later."
+
+def get_room_types() -> List[Dict]:
+    """Get available room types for booking"""
+    return [
+        {"type": "Standard Room", "description": "Basic amenities, city view"},
+        {"type": "Deluxe Room", "description": "Premium amenities, partial city view"},
+        {"type": "Executive Suite", "description": "Spacious suite, city view, executive lounge access"},
+        {"type": "Presidential Suite", "description": "Luxury suite, panoramic view, butler service"}
+    ]
+
+def process_hotel_booking_step(user_input: str) -> str:
+    """Process different steps of hotel booking flow"""
+    global hotel_booking_state
+
+    current_step = hotel_booking_state["step"]
+
+    if current_step == "initial":
+        # Extract hotel name from user input
+        hotel_name = ""
+        if "book" in user_input.lower():
+            # Try to extract hotel name
+            parts = user_input.lower().split("book")
+            if len(parts) > 1:
+                hotel_part = parts[1].strip()
+                hotel_part = hotel_part.replace("the ", "").replace("hotel", "").strip()
+                hotel_name = hotel_part.title()
+
+        if hotel_name:
+            hotel_booking_state["hotel_name"] = hotel_name
+            hotel_booking_state["step"] = "room_selection"
+            hotel_booking_state["active"] = True
+
+            room_types = get_room_types()
+            response = f"Great! I'll help you book {hotel_name}. Please select a room type:\n"
+            for room in room_types:
+                response += f"- {room['type']}: {room['description']}\n"
+            return response
+        else:
+            hotel_booking_state["step"] = "room_selection"
+            hotel_booking_state["active"] = True
+
+            room_types = get_room_types()
+            response = "I'll help you with the booking. Please select a room type:\n"
+            for room in room_types:
+                response += f"- {room['type']}: {room['description']}\n"
+            return response
+
+    elif current_step == "room_selection":
+        room_types = get_room_types()
+        selected_room = None
+
+        for room in room_types:
+            if room["type"].lower() in user_input.lower():
+                selected_room = room
+                break
+
+        if selected_room:
+            hotel_booking_state["room_type"] = selected_room["type"]
+            hotel_booking_state["step"] = "date_selection"
+            return f"Perfect! You've selected {selected_room['type']}. Now please provide your check-in and check-out dates (e.g., 'Check-in tomorrow, check-out in 3 days')."
+        else:
+            response = "Please select one of the available room types:\n"
+            for room in room_types:
+                response += f"- {room['type']}: {room['description']}\n"
+            return response
+
+    elif current_step == "date_selection":
+        # For demo purposes, set default dates
+        hotel_booking_state["check_in"] = "2025-01-15"
+        hotel_booking_state["check_out"] = "2025-01-17"
+        hotel_booking_state["step"] = "guest_selection"
+        return "Thanks! I've set your dates. Now please tell me how many guests will be staying."
+
+    elif current_step == "guest_selection":
+        import re
+        numbers = re.findall(r'\d+', user_input)
+        if numbers:
+            guests = int(numbers[0])
+            hotel_booking_state["guests"] = guests
+            hotel_booking_state["step"] = "confirmation"
+
+            # Generate a random total price for demo purposes
+            base_price = random.randint(8000, 15000)
+            nights = 2
+            total_price = base_price * nights
+            hotel_booking_state["total_price"] = total_price
+
+            return f"Perfect! Let me confirm your booking details:\n\n" \
+                   f"🏨 Hotel: {hotel_booking_state.get('hotel_name', 'Selected Hotel')}\n" \
+                   f"🛏️ Room: {hotel_booking_state['room_type']}\n" \
+                   f"📅 Check-in: {hotel_booking_state['check_in']}\n" \
+                   f"📅 Check-out: {hotel_booking_state['check_out']}\n" \
+                   f"👥 Guests: {guests}\n" \
+                   f"💰 Total Price: ₹{total_price:,} (2 nights)\n\n" \
+                   f"Please say 'confirm booking' to complete or 'cancel booking' to cancel."
+        else:
+            return "Please specify the number of guests (e.g., '2 guests' or 'three people')."
+
+    elif current_step == "confirmation":
+        if "confirm" in user_input.lower():
+            booking_id = f"HTL{random.randint(100000, 999999)}"
+            hotel_booking_state["booking_id"] = booking_id
+            hotel_booking_state["step"] = "completed"
+
+            response = f"🎉 Booking Confirmed! 🎉\n\n" \
+                      f"Your booking has been successfully processed!\n\n" \
+                      f"📋 Booking ID: {booking_id}\n" \
+                      f"🏨 Hotel: {hotel_booking_state.get('hotel_name', 'Selected Hotel')}\n" \
+                      f"🛏️ Room: {hotel_booking_state['room_type']}\n" \
+                      f"📅 Check-in: {hotel_booking_state['check_in']}\n" \
+                      f"📅 Check-out: {hotel_booking_state['check_out']}\n" \
+                      f"👥 Guests: {hotel_booking_state['guests']}\n" \
+                      f"💰 Total Paid: ₹{hotel_booking_state['total_price']:,}\n\n" \
+                      f"Thank you for choosing our service! Have a wonderful stay!"
+
+            # Reset booking state
+            hotel_booking_state = {
+                "active": False,
+                "hotel_name": "",
+                "room_type": "",
+                "check_in": "",
+                "check_out": "",
+                "guests": 0,
+                "total_price": 0,
+                "step": "initial"
+            }
+            return response
+
+        elif "cancel" in user_input.lower():
+            hotel_booking_state = {
+                "active": False,
+                "hotel_name": "",
+                "room_type": "",
+                "check_in": "",
+                "check_out": "",
+                "guests": 0,
+                "total_price": 0,
+                "step": "initial"
+            }
+            return "Booking cancelled. How else can I help you today?"
+        else:
+            return "Please say 'confirm booking' to complete the booking or 'cancel booking' to cancel."
+
+    return "I'm not sure how to help with that. Can you please clarify?"
+
 assistant_tools = ToolsSchema(
     standard_tools=[
         FunctionSchema(
@@ -264,6 +623,40 @@ assistant_tools = ToolsSchema(
             },
             required=[],
         ),
+        FunctionSchema(
+            name="search_hotels",
+            description=(
+                "Search for hotels in a specific location with pricing from multiple booking sites."
+                " Use this when users want to find hotels, compare prices, or look for accommodation."
+            ),
+            properties={
+                "query": {
+                    "type": "string",
+                    "description": "Location and criteria for hotel search (e.g., 'hotels in Mumbai under 10000').",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of hotels to return (1-10).",
+                    "minimum": 1,
+                    "maximum": 10,
+                },
+            },
+            required=["query"],
+        ),
+        FunctionSchema(
+            name="book_hotel",
+            description=(
+                "Handle hotel booking conversations and process booking steps."
+                " Use this when users want to book a hotel or continue an existing booking."
+            ),
+            properties={
+                "user_input": {
+                    "type": "string",
+                    "description": "The user's booking-related input or response.",
+                },
+            },
+            required=["user_input"],
+        ),
     ]
 )
 
@@ -299,8 +692,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                 " what day it is, who currently holds a role, or any other 'right now' fact, you MUST"
                 " call `web_search` first and wait for the result before replying. NEVER answer these"
                 " from stale knowledge. ALWAYS call `get_current_weather` when the user wants weather,"
-                " temperatures, rain chances, or sunrise/sunset information. Once a tool returns,"
-                " reason over that data, mention sources when possible, and clearly explain what you found."
+                " temperatures, rain chances, or sunrise/sunset information. ALWAYS call `search_hotels`"
+                " when users want to find hotels, compare prices, or look for accommodation. ALWAYS call"
+                " `book_hotel` when users want to book a hotel or continue an existing booking process."
+                " Once a tool returns, reason over that data, mention sources when possible, and clearly"
+                " explain what you found."
             ),
         },
     ]
@@ -382,6 +778,40 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         await params.result_callback({"result": result_text})
 
     llm.register_function("get_current_weather", get_current_weather_handler, cancel_on_interruption=True)
+
+    async def search_hotels_handler(params: FunctionCallParams):
+        args = params.arguments or {}
+        query = args.get("query", "").strip()
+        max_results = args.get("max_results", 8)
+        try:
+            max_results = int(max_results)
+        except (TypeError, ValueError):
+            max_results = 8
+        max_results = max(1, min(max_results, 10))
+
+        if not query:
+            await params.result_callback({"result": "Please provide a location or criteria for hotel search."})
+            return
+
+        logger.info(f"[tools] search_hotels called with query: {query} (max_results={max_results})")
+        result_text = search_hotels(query, max_results=max_results)
+        await params.result_callback({"result": result_text})
+
+    llm.register_function("search_hotels", search_hotels_handler, cancel_on_interruption=True)
+
+    async def book_hotel_handler(params: FunctionCallParams):
+        args = params.arguments or {}
+        user_input = args.get("user_input", "").strip()
+
+        if not user_input:
+            await params.result_callback({"result": "Please provide your booking request or response."})
+            return
+
+        logger.info(f"[tools] book_hotel called with input: {user_input}")
+        result_text = process_hotel_booking_step(user_input)
+        await params.result_callback({"result": result_text})
+
+    llm.register_function("book_hotel", book_hotel_handler, cancel_on_interruption=True)
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):

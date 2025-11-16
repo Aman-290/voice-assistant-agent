@@ -7,7 +7,9 @@ dependencies = [
     "pipecat-ai[webrtc,silero,deepgram,openai,cartesia,local-smart-turn-v3,runner,google,whisper,mem0]",
     "pipecat-ai-cli",
     "tavily-python>=0.3.8,<1",
-    "requests>=2.32,<3"
+    "requests>=2.32,<3",
+    "google-adk",
+    "litellm"
 ]
 
 [dependency-groups]
